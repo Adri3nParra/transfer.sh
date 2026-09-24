@@ -1,0 +1,50 @@
+# Every optional resource enabled: ingress, HTTPRoute, HPA, NetworkPolicy, PVC
+transfersh:
+  httpAuth:
+    enabled: true
+    existingSecret: transfer-sh-auth
+    ipWhitelist: 10.0.0.0/8
+  security:
+    ipWhitelist: 10.0.0.0/8
+    ipBlacklist: 10.0.0.1
+  clamav:
+    host: clamav.clamav.svc.cluster.local:3310
+  extraEnv:
+    CORS_DOMAINS: "*"
+
+persistence:
+  enabled: true
+  storageClass: standard
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  tls:
+    - secretName: transfer-sh-tls
+      hosts:
+        - transfer.example.com
+
+gatewayApi:
+  enabled: true
+  parentRefs:
+    - name: my-gateway
+      namespace: gateway
+      sectionName: https
+
+autoscaling:
+  enabled: true
+  maxReplicas: 3
+  targetMemoryUtilizationPercentage: 80
+
+networkPolicy:
+  enabled: true
+  ingressNamespace: traefik
+  additionalIngressRules:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - port: 8080

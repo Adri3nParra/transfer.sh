@@ -1,0 +1,9 @@
+# Google Drive with client.json and token.json from an existing secret, persisted config
+transfersh:
+  provider: gdrive
+  gdrive:
+    existingSecret: transfer-sh-gdrive
+    tokenFromSecret: true
+
+persistence:
+  enabled: true

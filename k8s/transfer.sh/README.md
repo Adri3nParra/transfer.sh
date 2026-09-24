@@ -5,7 +5,13 @@ A Helm chart to deploy [transfer.sh](https://github.com/dutchcoders/transfer.sh)
 ## Quick Start
 
 ```bash
-helm install transfer-sh ./transfer.sh
+helm install transfer-sh oci://ghcr.io/dutchcoders/charts/transfer-sh
+```
+
+Or from a local checkout:
+
+```bash
+helm install transfer-sh ./k8s/transfer.sh
 ```
 
 Upload a file:

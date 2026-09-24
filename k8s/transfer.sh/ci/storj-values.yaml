@@ -1,0 +1,6 @@
+# Storj with an existing secret
+transfersh:
+  provider: storj
+  storj:
+    bucket: transfer-sh
+    existingSecret: transfer-sh-storj

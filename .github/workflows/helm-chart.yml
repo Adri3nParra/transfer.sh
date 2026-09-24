@@ -1,0 +1,118 @@
+name: Lint and publish Helm chart
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: main
+    paths:
+      - 'k8s/**'
+      - '.github/workflows/helm-chart.yml'
+  push:
+    branches: main
+    paths:
+      - 'k8s/**'
+      - '.github/workflows/helm-chart.yml'
+
+env:
+  CHART_DIR: k8s/transfer.sh
+  HELM_VERSION: v4.3.0
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout codebase
+        uses: actions/checkout@v7
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Lint chart
+        run: |
+          helm lint --strict "${CHART_DIR}"
+          for VALUES in "${CHART_DIR}"/ci/*-values.yaml; do
+            echo "::group::${VALUES}"
+            helm lint --strict "${CHART_DIR}" --values "${VALUES}"
+            echo "::endgroup::"
+          done
+
+      - name: Render templates
+        run: |
+          helm template transfer-sh "${CHART_DIR}" > /dev/null
+          for VALUES in "${CHART_DIR}"/ci/*-values.yaml; do
+            echo "::group::${VALUES}"
+            helm template transfer-sh "${CHART_DIR}" --values "${VALUES}"
+            echo "::endgroup::"
+          done
+
+  publish:
+    needs: lint
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout codebase
+        uses: actions/checkout@v7
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Show chart information
+        id: chart
+        run: |
+          CHART_NAME=$(yq '.name' "${CHART_DIR}/Chart.yaml")
+          CHART_VERSION=$(yq '.version' "${CHART_DIR}/Chart.yaml")
+          REGISTRY="oci://ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/charts"
+          echo "CHART_NAME: ${CHART_NAME}, CHART_VERSION: ${CHART_VERSION}, REGISTRY: ${REGISTRY}"
+          echo "name=${CHART_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "version=${CHART_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "registry=${REGISTRY}" >> "${GITHUB_OUTPUT}"
+
+      - name: Login to GHCR
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "${GHCR_PASSWORD}" | helm registry login ghcr.io --username "${GHCR_USERNAME}" --password-stdin
+
+      - name: Check if version is already published
+        id: check
+        env:
+          CHART_NAME: ${{ steps.chart.outputs.name }}
+          CHART_VERSION: ${{ steps.chart.outputs.version }}
+          REGISTRY: ${{ steps.chart.outputs.registry }}
+        run: |
+          # "not found": version missing, "denied": package does not exist yet (first publish)
+          # Any other error fails the job, so a registry outage never leads to overwriting a published version
+          if OUTPUT=$(helm show chart "${REGISTRY}/${CHART_NAME}" --version "${CHART_VERSION}" 2>&1); then
+            echo "::notice::${CHART_NAME} ${CHART_VERSION} is already published, bump version in Chart.yaml to release"
+            echo "published=true" >> "${GITHUB_OUTPUT}"
+          elif grep -qE 'not found|denied' <<< "${OUTPUT}"; then
+            echo "published=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "${OUTPUT}"
+            exit 1
+          fi
+
+      - name: Package and push chart
+        if: steps.check.outputs.published == 'false'
+        env:
+          CHART_NAME: ${{ steps.chart.outputs.name }}
+          CHART_VERSION: ${{ steps.chart.outputs.version }}
+          REGISTRY: ${{ steps.chart.outputs.registry }}
+        run: |
+          helm package "${CHART_DIR}" --destination .
+          helm push "${CHART_NAME}-${CHART_VERSION}.tgz" "${REGISTRY}"
+
+      - name: Logout from GHCR
+        if: always()
+        run: |
+          helm registry logout ghcr.io || true

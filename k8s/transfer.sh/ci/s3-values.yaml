@@ -1,0 +1,13 @@
+# S3 (MinIO) with inline credentials and HTTP basic auth: renders the chart-managed Secret
+transfersh:
+  provider: s3
+  s3:
+    bucket: transfer-sh
+    endpoint: http://minio.minio.svc.cluster.local:9000
+    pathStyle: true
+    accessKey: access-key
+    secretKey: secret-key
+  httpAuth:
+    enabled: true
+    user: user
+    pass: pass
